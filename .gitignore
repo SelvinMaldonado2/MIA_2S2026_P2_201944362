@@ -1,0 +1,23 @@
+# Node/Frontend
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+build/
+.env
+
+# C++/Backend
+*.o
+*.out
+*.exe
+build/
+bin/
+
+# Temporary files and logs
+*.log
+*.tmp
+.DS_Store
+
+# Archivos de disco simulado (opcional, dependerá de tu ruta de discos)
+*.mia
+*.dk

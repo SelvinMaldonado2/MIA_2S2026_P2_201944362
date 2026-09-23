@@ -1,2 +1,3 @@
-# MIA_2S2026_P2_201944362
-Proyecto2
+# Proyecto 2 - DISK ONLINE (MIA)
+
+Implementación de la segunda fase del motor de archivos soportando EXT3 y desplegado en AWS (Backend y Frontend).
