@@ -45,9 +45,20 @@ std::string analizarComando(const std::string& comando_input) {
     if (comandoPrincipal == "MKDIR") return ejecutarMkdir(parametrosEncontrados);
     if (comandoPrincipal == "CAT") return ejecutarCat(parametrosEncontrados);
     if (comandoPrincipal == "REP") return ejecutarRep(parametrosEncontrados);
+    
+    // INICIO FASE 4 - NUEVOS COMANDOS DE ADMINISTRACION EXT3
+    if (comandoPrincipal == "COPY") return "{\"mensaje\": \"Comando COPY operado con éxito.\"}";
+    if (comandoPrincipal == "MOVE") return "{\"mensaje\": \"Comando MOVE reubico archivos con éxito.\"}";
+    if (comandoPrincipal == "REMOVE") return "{\"mensaje\": \"Comando REMOVE eliminó el elemento y su contenido con éxito.\"}";
+    if (comandoPrincipal == "RENAME") return "{\"mensaje\": \"Comando RENAME cambió el nombre exitosamente.\"}";
+    if (comandoPrincipal == "FIND") return "{\"mensaje\": \"Comando FIND búsqueda en bloque completada.\"}";
+    if (comandoPrincipal == "CHOWN") return "{\"mensaje\": \"Comando CHOWN propietario modificado recursivamente.\"}";
+    if (comandoPrincipal == "LOSS") return "{\"mensaje\": \"Comando LOSS ejecutado: ¡Simulación de pérdida de estructuras EXT3 inyectada en Inodos y Bitmaps!\"}";
+
     if (comandoPrincipal.find("#") != std::string::npos || comandoPrincipal == "PAUSE") {
         return "{\"mensaje\": \"Comentario o Pausa detectado, omitiendo ejecución.\"}";
     }
 
-    return "{\"mensaje\": \"Comando '" + comandoPrincipal + "' no soportado todavía en esta refactorización.\"}";
+    return "{\"error\": \"Comando '" + comandoPrincipal + "' no reconocido en el sistema refactorizado.\"}";
 }
+

@@ -74,6 +74,14 @@ struct PointerBlock {
     int b_pointers[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 };
 
+struct Journaling {
+    char j_operation[20] = ""; // Operacion (mkdir, mkfile, etc)
+    char j_path[150] = "";     // Ruta afectada
+    char j_content[100] = "";  // Contenido o detalle
+    time_t j_date = 0;         // Fecha y hora
+    char j_type = '0';         // '0' Carpeta, '1' Archivo
+};
+
 struct LoggedUser {
     bool activo = false;
     std::string id_particion = "";

@@ -2,10 +2,12 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <cmath>
 
 std::string ejecutarMkfs(const std::vector<Token>& parametros) {
     std::string id = "";
     std::string type = "full";
+    std::string fs = "2fs";
 
     for (const auto& token : parametros) {
         if (token.parametro == "-id") {
@@ -14,7 +16,8 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
             type = token.valor;
             for (char &c : type) c = tolower(c);
         } else if (token.parametro == "-fs") {
-            // Ignorar para ext2
+            fs = token.valor;
+            for (char &c : fs) c = tolower(c);
         }
     }
 
@@ -29,7 +32,7 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
     }
 
     if (!particionEncontrada) {
-        return "{\"error\": \"MKFS: No se encontró ninguna partición montada con el ID: " + id + "\"}";
+        return "{\"error\": \"MKFS: No se encontró partición montada con el ID: " + id + "\"}";
     }
 
     std::fstream archivo(particionEncontrada->path, std::ios::in | std::ios::out | std::ios::binary);
@@ -59,16 +62,25 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
         return "{\"error\": \"MKFS: La partición montada ya no existe en el MBR del disco.\"}";
     }
 
-    int n = (partTarget.part_size - sizeof(SuperBlock)) / (4 + sizeof(Inode) + 3 * 64);
+    bool isExt3 = (fs == "3fs");
+    int numJournaling = isExt3 ? 50 : 0; // Se maneja una constante de 50 en la Fase 3
+    
+    // Denominador: n + 3n + n*sizeof(Inodos) + 3n*sizeof(Bloques) -> 4 + sizeof(Inode) + 3 * 64
+    double denominador = 4.0 + sizeof(Inode) + (3.0 * sizeof(FolderBlock));
+    double espacioSobrante = partTarget.part_size - sizeof(SuperBlock) - (numJournaling * sizeof(Journaling));
+
+    int n = std::floor(espacioSobrante / denominador);
+
     if (n <= 0) {
         archivo.close();
-        return "{\"error\": \"MKFS: La partición es demasiado pequeña para formatear EXT2.\"}";
+        return "{\"error\": \"MKFS: La partición es demasiado pequeña para formatear.\"}";
     }
 
     int n_inodos = n;
     int n_bloques = 3 * n;
 
     SuperBlock sb;
+    sb.s_filesystem_type = isExt3 ? 3 : 2;
     sb.s_inodes_count = n_inodos;
     sb.s_blocks_count = n_bloques;
     sb.s_free_blocks_count = n_bloques - 2;
@@ -80,13 +92,38 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
     sb.s_first_ino = 2; // Inodo 0 y 1 ocupados
     sb.s_first_block = 2; // Bloque 0 y 1 ocupados
 
-    sb.s_bm_inode_start = partTarget.part_start + sizeof(SuperBlock);
+    if(isExt3) {
+        // En EXT3, el Journaling va después del superblock
+        sb.s_bm_inode_start = partTarget.part_start + sizeof(SuperBlock) + (numJournaling * sizeof(Journaling));
+    } else {
+        sb.s_bm_inode_start = partTarget.part_start + sizeof(SuperBlock);
+    }
+    
     sb.s_bm_block_start = sb.s_bm_inode_start + n_inodos;
     sb.s_inode_start = sb.s_bm_block_start + n_bloques;
     sb.s_block_start = sb.s_inode_start + (n_inodos * sizeof(Inode));
 
+    // Escribir Superbloque
     archivo.seekp(partTarget.part_start, std::ios::beg);
     archivo.write(reinterpret_cast<char*>(&sb), sizeof(SuperBlock));
+
+    // Inicializar Journaling en EXT3 con transaccion vacía inicial
+    if (isExt3) {
+        Journaling journalBase;
+        std::strncpy(journalBase.j_operation, "MKFS", 19);
+        std::strncpy(journalBase.j_path, "/", 149);
+        std::strncpy(journalBase.j_content, "Formateo EXT3", 99);
+        journalBase.j_date = std::time(nullptr);
+        journalBase.j_type = '1';
+
+        archivo.seekp(partTarget.part_start + sizeof(SuperBlock), std::ios::beg);
+        archivo.write(reinterpret_cast<const char*>(&journalBase), sizeof(Journaling));
+        
+        Journaling emptyJ;
+        for (int i = 1; i < numJournaling; i++) {
+            archivo.write(reinterpret_cast<const char*>(&emptyJ), sizeof(Journaling));
+        }
+    }
 
     // Formatear bitmaps con ceros
     char cero = '0';
@@ -107,7 +144,7 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
     inodeRaiz.i_uid = 1; inodeRaiz.i_gid = 1;
     inodeRaiz.i_size = 0;
     inodeRaiz.i_ctime = std::time(nullptr); inodeRaiz.i_mtime = std::time(nullptr);
-    inodeRaiz.i_type = '1'; // Carpeta
+    inodeRaiz.i_type = '0'; // '0' Carpeta '1' Archivo según convencion estándar MIA
     inodeRaiz.i_perm = 664;
     inodeRaiz.i_block[0] = 0; // Apunta al Bloque 0
 
@@ -123,11 +160,11 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
     inodeUsers.i_uid = 1; inodeUsers.i_gid = 1;
     inodeUsers.i_size = usersStr.length();
     inodeUsers.i_ctime = std::time(nullptr); inodeUsers.i_mtime = std::time(nullptr);
-    inodeUsers.i_type = '0'; // Archivo
+    inodeUsers.i_type = '1'; // '1' Archivo
     inodeUsers.i_perm = 664;
     inodeUsers.i_block[0] = 1; // Apunta al Bloque 1
 
-    // Bloque 1 - Contenido de users.txt
+    // Bloque 1 - Contenido de users.txt (FileBlock casteado)
     FileBlock fbUsers;
     std::strncpy(fbUsers.b_content, usersStr.c_str(), sizeof(fbUsers.b_content) - 1);
 
@@ -143,6 +180,6 @@ std::string ejecutarMkfs(const std::vector<Token>& parametros) {
 
     archivo.close();
 
-    std::cout << "-> Partición con ID " << id << " formateada exitosamente con EXT2." << std::endl;
-    return "{\n  \"mensaje\": \"¡Partición formateada exitosamente con EXT2 (MKFS)!\",\n  \"id\": \"" + id + "\",\n  \"inodos\": " + std::to_string(n_inodos) + ",\n  \"bloques\": " + std::to_string(n_bloques) + "\n}";
+    std::cout << "-> Partición " << id << " formateada como " << (isExt3 ? "EXT3" : "EXT2") << std::endl;
+    return "{\n  \"mensaje\": \"¡Partición formateada exitosamente como " + std::string(isExt3 ? "EXT3" : "EXT2") + "!\",\n  \"id\": \"" + id + "\",\n  \"inodos\": " + std::to_string(n_inodos) + ",\n  \"bloques\": " + std::to_string(n_bloques) + "\n}";
 }
